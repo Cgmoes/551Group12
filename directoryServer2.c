@@ -134,6 +134,7 @@ int main(int argc, char **argv)
 				    if (sscanf(readbuf + 1, "%[^:]::%d", name, &port) == 2) {
 				    	if (server_count < MAX_SERVERS) {
 					    	c->port = port;
+					    	// FIXME: Duplicate server topics should not be accepted by the directory server
 					    	snprintf(c->chatname, MAX_NAME, "%s", name);
 								printf(
 									"directory: fd=%d hosting \"%s\" at %s:%d\n",

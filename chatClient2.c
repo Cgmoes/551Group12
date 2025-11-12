@@ -138,6 +138,7 @@ int main()
 	char username[MAX_NAME] = {'\0'};
 	printf("Connection successful. Enter username: ");
 	int c; while ((c = getchar()) != '\n' && c != EOF); // clear input buffer
+	// FIXME: Please remember to use the output of scan functions to check if the variables being manipulated were correctly changed.
 	scanf("%[^\t\n]", username);
 	snprintf(input, MAX, "u%s", username);
 	write(sockfd, input, MAX);

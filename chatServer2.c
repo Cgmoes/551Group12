@@ -23,6 +23,7 @@ int main(int argc, char **argv)
 	}
 	char name[MAX_NAME] = {'\0'};
 	snprintf(name, MAX_NAME, "%s", argv[1]);
+	// FIXME: Use of banned function ato*() detected. Use sscanf() instead.
 	in_port_t port = (in_port_t)atoi(argv[2]);
 	int sockfd, newsockfd, dirsockfd;
 	struct sockaddr_in cli_addr, serv_addr, dir_addr;
