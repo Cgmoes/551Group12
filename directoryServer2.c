@@ -73,7 +73,7 @@ int main(int argc, char **argv)
 			if (c->fd > max_fd) {
 				max_fd = c->fd;
 			}
-	}
+		}
 
 		if (select(max_fd+1, &readset, NULL, NULL, NULL) <= 0) {
 			fprintf(stderr, "%s:%d Select error\n", __FILE__, __LINE__);
@@ -129,13 +129,27 @@ int main(int argc, char **argv)
 				} else {
 					// Chat name choosing, formatted: "r{name}::{port}"
 					if (readbuf[0] == 'r') {
-						char name[MAX_NAME];
+						char requested[MAX_NAME];
 						int port;
-				    if (sscanf(readbuf + 1, "%[^:]::%d", name, &port) == 2) {
-				    	if (server_count < MAX_SERVERS) {
+						int available = 1;
+				    if (sscanf(readbuf + 1, "%[^:]::%d", requested, &port) == 2) {
+				    	// Check all other server names first before assigning
+							for (other = LIST_FIRST(&clients); other != NULL; ) {
+								tmp = LIST_NEXT(other, entries);
+								if (strncmp(other->chatname, requested, MAX_NAME) == 0) {
+									available = 0;
+					    		printf(
+					    			"directory: fd=%d tried to register with duplicate name %s\n",
+					    			c->fd, requested
+					    		);
+									break;
+								}
+								other = tmp;
+							}
+				    	if (server_count < MAX_SERVERS && available) {
 					    	c->port = port;
 					    	// FIXME: Duplicate server topics should not be accepted by the directory server
-					    	snprintf(c->chatname, MAX_NAME, "%s", name);
+					    	snprintf(c->chatname, MAX_NAME, "%s", requested);
 								printf(
 									"directory: fd=%d hosting \"%s\" at %s:%d\n",
 									c->fd, c->chatname, c->ip, c->port
@@ -144,7 +158,7 @@ int main(int argc, char **argv)
 				    	} 
 				    	else {
 				    		// If there are already MAX_SERVERS servers registered, close connection
-				    		printf("directory: closed fd=%d, already at max chat servers\n", c->fd);
+				    		printf("directory: closed fd=%d\n", c->fd);
 				    		close(c->fd);
 				    		LIST_REMOVE(c, entries);
 				    		free(c);
