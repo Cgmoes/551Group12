@@ -1,8 +1,8 @@
 #
-# Makefile for chat server
+# Makefile for TLS-enabled chat client, server, and directory server
 #
 CC	= gcc
-EXECUTABLES=chatClient2 chatServer2 directoryServer2
+EXECUTABLES=chatClient5 chatServer5 directoryServer5
 INCLUDES	= $(wildcard *.h)
 SOURCES	= $(wildcard *.c)
 DEPS		= $(INCLUDES)
@@ -11,33 +11,38 @@ OBJECTS	+= $(SOURCES:.c=.dSYM*)
 EXTRAS	= $(SOURCES:.c=.exe*)
 LIBS		=
 LDFLAGS	=
-CFLAGS	= -g -ggdb -std=c99 -Wmain \
+CFLAGS	= -g -ggdb -std=c99 \
+				-Wuninitialized -Wunused -Wunused-macros -Wunused-variable \
+				-Wunused-function -Wunused-but-set-parameter \
 				-Wignored-qualifiers -Wshift-negative-value \
-				-Wuninitialized -Wunused -Wunused-macros \
-				-Wunused-function -Wunused-parameter -Wunused-but-set-parameter \
-				-Wreturn-type \
-				-Winit-self -Wimplicit-int -Wimplicit-fallthrough -Wparentheses \
-				-Wformat=2 -Wformat-nonliteral -Wformat-security -Wformat-y2k \
-				-Wuninitialized -Wswitch-default -Wfatal-errors
+				-Wmain -Wreturn-type \
+				-Winit-self -Wimplicit-int -Wimplicit-fallthrough \
+				-Wparentheses -Wdangling-else -Wfatal-errors \
+				-Wreturn-type -Wredundant-decls -Wswitch-default -Wshadow \
+				-Wformat=2 -Wformat-nonliteral -Wformat-y2k -Wformat-security
 CFLAGS	+= -ggdb3
-CFLAGS	+= -Wformat-security -Wconversion -Wformat-overflow=2 -Wformat-signedness
-# CFLAGS += -Wc99-c11-compat -Wmaybe-uninitialized \
+#CFLAGS	+= -Wconversion
+#CFLAGS	+= -Wc99-c11-compat -Wmaybe-uninitialized \
 					-Wformat-truncation=2 -Wstringop-truncation \
 					-Wformat-overflow=2 -Wformat-signedness
 
-all:	chat2
+# Uncomment the LIBS line below containing the library that you're using
+#LIBS	= -lcrypto -lgnutls
+LIBS	= -lcrypto -lssl
 
-chat2:	$(EXECUTABLES)
+all:	tls
+
+tls:	$(EXECUTABLES)
 
 
-chatClient2: chatClient2.c $(DEPS)
-	$(CC) $(LDFLAGS) $(CFLAGS) $(LIBS) -o $@ $<
+chatClient5: chatClient5.c $(DEPS)
+	$(CC) $(LDFLAGS) $(CFLAGS) $(INCLUDES) $(LDFLAGS) -o $@ $< $(LIBS)
 
-chatServer2: chatServer2.c $(DEPS)
-	$(CC) $(LDFLAGS) $(CFLAGS) $(LIBS) -o $@ $<
+chatServer5: chatServer5.c $(DEPS)
+	$(CC) $(LDFLAGS) $(CFLAGS) $(INCLUDES) $(LDFLAGS) -o $@ $< $(LIBS)
 
-directoryServer2: directoryServer2.c $(DEPS)
-	$(CC) $(LDFLAGS) $(CFLAGS) $(LIBS) -o $@ $<
+directoryServer5: directoryServer5.c $(DEPS)
+	$(CC) $(LDFLAGS) $(CFLAGS) $(INCLUDES) $(LDFLAGS) -o $@ $< $(LIBS)
 
 
 # Clean up the mess we made
