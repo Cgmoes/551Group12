@@ -27,7 +27,6 @@ struct client {
 
 static SSL_CTX *create_ssl_context(void);
 static void configure_ssl_context(SSL_CTX *ctx);
-static int verify_chatserver_cert(SSL *ssl);
 static ssize_t client_recv(struct client *c, char *buf, size_t len);
 static ssize_t client_send(struct client *c, const char *buf, size_t len);
 
@@ -137,22 +136,11 @@ int main(int argc, char **argv)
 				if (ssl) {
 					SSL_set_fd(ssl, newc->fd);
 					if (SSL_accept(ssl) > 0) {
-						long v = SSL_get_verify_result(ssl);
-						if (v == X509_V_OK && verify_chatserver_cert(ssl)) {
-							newc->ssl = ssl;
-							newc->tls_handshake_done = 1;
-							printf("directory: TLS established for fd=%d (chat server)\n", newc->fd);
-						} else {
-							printf("directory: cert verification failed for fd=%d\n", newc->fd);
-							SSL_shutdown(ssl);
-							SSL_free(ssl);
-							close(newc->fd);
-							free(newc);
-							continue;
-						}
+				    newc->ssl = ssl;
+				    newc->tls_handshake_done = 1;
+				    printf("directory: TLS established for fd=%d (chat server)\n", newc->fd);
 					} else {
-					// If fail, this is a plaintext chat client
-					SSL_free(ssl);
+				    SSL_free(ssl);
 					}
 				}
 				// Insert into client list
@@ -326,39 +314,7 @@ static void configure_ssl_context(SSL_CTX *ctx)
 		ERR_print_errors_fp(stderr);
 		exit(EXIT_FAILURE);
 	}
-
-	// Load CA that signs Chat Servers' certs
-	if (SSL_CTX_load_verify_locations(ctx, "chatserver_ca.crt", NULL) <= 0) {
-		fprintf(stderr, "Failed to load chatserver_ca.crt\n");
-		ERR_print_errors_fp(stderr);
-		exit(EXIT_FAILURE);
-	}
-
-	// Require peer cert and verify it
-	SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
-	SSL_CTX_set_verify_depth(ctx, 4);
-}
-
-// Verifies the peer's certificate CN is one of the allowed list
-static int verify_chatserver_cert(SSL *ssl)
-{
-	X509 *cert = SSL_get_peer_certificate(ssl);
-	if (!cert) return 0;
-
-	char cn[256] = {0};
-	X509_NAME *subj = X509_get_subject_name(cert);
-	if (subj) {
-		X509_NAME_get_text_by_NID(subj, NID_commonName, cn, sizeof(cn));
-	}
-	X509_free(cert);
-
-	const char *allowed[] = { "Chat1", "Chat2", "Chat3", "Chat4", "Chat5" };
-	size_t allowed_count = sizeof(allowed) / sizeof(allowed[0]);
-
-	for (size_t i = 0; i < allowed_count; ++i) {
-		if (strncmp(cn, allowed[i], MAX) == 0) return 1;
-	}
-	return 0;
+	SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);
 }
 
 // Receive from client (TLS or plaintext). Returns bytes read or <=0 on error/close
