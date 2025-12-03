@@ -239,7 +239,7 @@ int main(int argc, char **argv)
     }
 
 	char smsg[MAX] = {'\0'};
-	snprintf(smsg, MAX, "r%s::%d", name, port);
+	snprintf(smsg, MAX, "r%s::%d::%s", name, port, cert_file);
 	(void) ssl_write_nb(dir_ssl, smsg, MAX);
 	
 
