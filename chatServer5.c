@@ -36,7 +36,7 @@ void opensslInit() {
 }
 
 // Create SSL_CTX for server or client (is_server: 1=server,0=client)
-SSL_CTX *createCtx(int is_server, const char *cert_file, const char *key_file, const char *ca_file) {
+SSL_CTX *createCtx(int is_server, const char *cert_file, const char *key_file) {
     const SSL_METHOD *method = is_server ? TLS_server_method() : TLS_client_method();
     SSL_CTX *ctx = SSL_CTX_new(method);
     if (!ctx) {
@@ -60,9 +60,6 @@ SSL_CTX *createCtx(int is_server, const char *cert_file, const char *key_file, c
             return NULL;
         }
     }
-
-    // Set CA for verifying the other side (server or directory)
-    SSL_CTX_load_verify_locations(ctx, ca_file, NULL);
 
     SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);
 
@@ -111,8 +108,8 @@ ssize_t ssl_write_nb(SSL *ssl, const void *buf, size_t len) {
 
 int main(int argc, char **argv)
 {
-	if (argc != 6) {
-		fprintf(stderr, "Usage: %s <server name> <port> <server_cert.pem> <server_key.pem> <ca_cert.pem>\n", argv[0]);
+	if (argc != 5) {
+		fprintf(stderr, "Usage: %s <server name> <port> <server_cert.pem> <server_key.pem>\n", argv[0]);
 		return EXIT_FAILURE;
 	}
 	char name[MAX_NAME] = {'\0'};
