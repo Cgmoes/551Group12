@@ -304,13 +304,13 @@ static SSL_CTX *create_ssl_context(void)
 static void configure_ssl_context(SSL_CTX *ctx)
 {
 	// Directory server certificate and key
-	if (SSL_CTX_use_certificate_file(ctx, "dirserver.crt", SSL_FILETYPE_PEM) <= 0) {
-		fprintf(stderr, "Failed to load dirserver.crt\n");
+	if (SSL_CTX_use_certificate_file(ctx, "tls/directoryServer.crt", SSL_FILETYPE_PEM) <= 0) {
+		fprintf(stderr, "Failed to load directory server cert\n");
 		ERR_print_errors_fp(stderr);
 		exit(EXIT_FAILURE);
 	}
-	if (SSL_CTX_use_PrivateKey_file(ctx, "dirserver.key", SSL_FILETYPE_PEM) <= 0) {
-		fprintf(stderr, "Failed to load dirserver.key\n");
+	if (SSL_CTX_use_PrivateKey_file(ctx, "tls/directoryServer.key", SSL_FILETYPE_PEM) <= 0) {
+		fprintf(stderr, "Failed to load directory server key\n");
 		ERR_print_errors_fp(stderr);
 		exit(EXIT_FAILURE);
 	}
