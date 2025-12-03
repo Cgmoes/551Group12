@@ -10,6 +10,8 @@
 #include "common.h"
 #include <openssl/ssl.h>
 #include <openssl/err.h>
+#include <fcntl.h>    // added for fcntl
+#include <errno.h>    // added for errno
 
 struct client {
 	int fd;
@@ -33,13 +35,9 @@ void opensslInit() {
     OpenSSL_add_ssl_algorithms();
 }
 
-static void opensslCleanup() {
-    EVP_cleanup();
-}
-
-// Create SSL_CTX for server
-SSL_CTX *createServerCtx(const char *cert_file, const char *key_file, const char *ca_file) {
-    SSL_METHOD *method = TLS_server_method();
+// Create SSL_CTX for server or client (is_server: 1=server,0=client)
+SSL_CTX *createCtx(int is_server, const char *cert_file, const char *key_file, const char *ca_file) {
+    const SSL_METHOD *method = is_server ? TLS_server_method() : TLS_client_method();
     SSL_CTX *ctx = SSL_CTX_new(method);
     if (!ctx) {
         fprintf(stderr, "Unable to create SSL context\n");
@@ -47,42 +45,30 @@ SSL_CTX *createServerCtx(const char *cert_file, const char *key_file, const char
         return NULL;
     }
 
-    // Enforce TLS 1.3
     SSL_CTX_set_min_proto_version(ctx, TLS1_3_VERSION);
     SSL_CTX_set_max_proto_version(ctx, TLS1_3_VERSION);
 
-    // Load server certificate & key
-    if (SSL_CTX_use_certificate_file(ctx, cert_file, SSL_FILETYPE_PEM) <= 0) {
-        fprintf(stderr, "Error loading server certificate (%s)\n", cert_file);
-        ERR_print_errors_fp(stderr);
-        SSL_CTX_free(ctx);
-        return NULL;
-    }
-    if (SSL_CTX_use_PrivateKey_file(ctx, key_file, SSL_FILETYPE_PEM) <= 0) {
-        fprintf(stderr, "Error loading server private key (%s)\n", key_file);
-        ERR_print_errors_fp(stderr);
-        SSL_CTX_free(ctx);
-        return NULL;
+    // For the directory server (client side), you do NOT load cert/key
+    if (is_server) {
+        if (SSL_CTX_use_certificate_file(ctx, cert_file, SSL_FILETYPE_PEM) <= 0 ||
+            SSL_CTX_use_PrivateKey_file(ctx, key_file, SSL_FILETYPE_PEM) <= 0 ||
+            !SSL_CTX_check_private_key(ctx)) {
+
+            fprintf(stderr, "Server cert/key load error\n");
+            ERR_print_errors_fp(stderr);
+            SSL_CTX_free(ctx);
+            return NULL;
+        }
     }
 
-    // Verify private key corresponds to cert
-    if (!SSL_CTX_check_private_key(ctx)) {
-        fprintf(stderr, "Server private key does not match the certificate public key\n");
-        SSL_CTX_free(ctx);
-        return NULL;
-    }
+    // Set CA for verifying the other side (server or directory)
+    SSL_CTX_load_verify_locations(ctx, ca_file, NULL);
 
-    // Set CA for client cert verification if desired
-    if (SSL_CTX_load_verify_locations(ctx, ca_file, NULL) <= 0) {
-        fprintf(stderr, "Warning: could not load CA file (%s). Continuing anyway.\n", ca_file);
-        ERR_clear_error();
-    }
-
-    // Don't require client certificates
     SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);
 
     return ctx;
 }
+
 
 // Wrapper for a non-blocking SSL accept step.
 // Returns:
@@ -138,6 +124,7 @@ int main(int argc, char **argv)
 	}
 	in_port_t port = (in_port_t)temp;
 	int sockfd, newsockfd, dirsockfd;
+	SSL *dir_ssl = NULL; // added to hold directory SSL object
 	struct sockaddr_in cli_addr, serv_addr, dir_addr;
 	fd_set readset;
 	int client_count = 0;
@@ -153,8 +140,14 @@ int main(int argc, char **argv)
 	//Initialize SSL
 	opensslInit();
 
-	SSL_CTX *ctx = createServerCtx(cert_file, key_file, ca_file);
+	SSL_CTX *ctx = createCtx(1, cert_file, key_file, ca_file);
     if (!ctx) {
+        fprintf(stderr, "Failed to create SSL_CTX\n");
+        return EXIT_FAILURE;
+    }
+
+	SSL_CTX *dir_ctx = createCtx(0, cert_file, key_file, ca_file);
+    if (!dir_ctx) {
         fprintf(stderr, "Failed to create SSL_CTX\n");
         return EXIT_FAILURE;
     }
@@ -193,15 +186,64 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 	}
 
-	/* Connect to the server. */
-	if (connect(dirsockfd, (struct sockaddr *) &dir_addr, sizeof(dir_addr)) < 0) {
-		perror("chat server: can't connect to directory server");
-		return EXIT_FAILURE;
-	}
+    /* Make directory socket non-blocking before connect */
+    if (set_nonblocking(dirsockfd) < 0) {
+        perror("set_nonblocking directory socket");
+        close(dirsockfd);
+        return EXIT_FAILURE;
+    }
+
+	/* Start non-blocking connect to the server. */
+    int rc = connect(dirsockfd, (struct sockaddr *) &dir_addr, sizeof(dir_addr));
+    if (rc < 0 && errno != EINPROGRESS) {
+        perror("chat server: can't connect to directory server");
+        close(dirsockfd);
+        return EXIT_FAILURE;
+    }
+
+    /* Create SSL object for directory server and attach socket */
+    dir_ssl = SSL_new(dir_ctx);
+    if (!dir_ssl) {
+        fprintf(stderr, "SSL_new failed for directory server\n");
+        close(dirsockfd);
+        return EXIT_FAILURE;
+    }
+    SSL_set_fd(dir_ssl, dirsockfd);
+
+    /* Perform non-blocking SSL_connect() loop */
+    while (1) {
+        rc = SSL_connect(dir_ssl);
+        if (rc == 1) {
+            printf("chat server: TLS handshake completed with directory server\n");
+            break;
+        }
+        int err = SSL_get_error(dir_ssl, rc);
+        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+            fd_set rset, wset;
+            FD_ZERO(&rset);
+            FD_ZERO(&wset);
+            if (err == SSL_ERROR_WANT_READ) FD_SET(dirsockfd, &rset);
+            if (err == SSL_ERROR_WANT_WRITE) FD_SET(dirsockfd, &wset);
+            /* Wait until socket is ready (no timeout) */
+            if (select(dirsockfd + 1, &rset, &wset, NULL, NULL) < 0) {
+                perror("select during SSL_connect");
+                SSL_free(dir_ssl);
+                close(dirsockfd);
+                return EXIT_FAILURE;
+            }
+            continue;
+        }
+        /* fatal error */
+        fprintf(stderr, "TLS handshake failed with directory server\n");
+        ERR_print_errors_fp(stderr);
+        SSL_free(dir_ssl);
+        close(dirsockfd);
+        return EXIT_FAILURE;
+    }
 
 	char smsg[MAX] = {'\0'};
 	snprintf(smsg, MAX, "r%s::%d", name, port);
-	write(dirsockfd, smsg, MAX);
+	(void) ssl_write_nb(dir_ssl, smsg, MAX);
 	
 
 	// ---- Setting up client communication ----
@@ -480,5 +522,5 @@ int main(int argc, char **argv)
 	}
 	close(dirsockfd);
 	SSL_CTX_free(ctx);
-	opensslCleanup();
+	EVP_cleanup();
 }
