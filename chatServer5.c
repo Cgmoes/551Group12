@@ -131,8 +131,6 @@ int main(int argc, char **argv)
 	snprintf(cert_file, MAX, "%s", argv[3]);
     char key_file[MAX] = {'\0'};
 	snprintf(key_file, MAX, "%s", argv[4]);
-    char ca_file[MAX] = {'\0'};
-	snprintf(ca_file, MAX, "%s", argv[5]);
 
 	//Initialize SSL
 	opensslInit();
@@ -239,7 +237,7 @@ int main(int argc, char **argv)
     }
 
 	char smsg[MAX] = {'\0'};
-	snprintf(smsg, MAX, "r%s::%d::%s", name, port, cert_file);
+	snprintf(smsg, MAX, "r%s::%d", name, port);
 	(void) ssl_write_nb(dir_ssl, smsg, MAX);
 	
 
