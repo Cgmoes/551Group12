@@ -137,13 +137,13 @@ int main(int argc, char **argv)
 	//Initialize SSL
 	opensslInit();
 
-	SSL_CTX *ctx = createCtx(1, cert_file, key_file, ca_file);
+	SSL_CTX *ctx = createCtx(1, cert_file, key_file);
     if (!ctx) {
         fprintf(stderr, "Failed to create SSL_CTX\n");
         return EXIT_FAILURE;
     }
 
-	SSL_CTX *dir_ctx = createCtx(0, cert_file, key_file, ca_file);
+	SSL_CTX *dir_ctx = createCtx(0, cert_file, key_file);
     if (!dir_ctx) {
         fprintf(stderr, "Failed to create SSL_CTX\n");
         return EXIT_FAILURE;
