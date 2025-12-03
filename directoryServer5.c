@@ -193,7 +193,7 @@ int main(int argc, char **argv)
 					// Plaintext connections = chat clients = must send only 'l'
 					if (!c->ssl) {
 						if (readbuf[0] != 'l') {
-							printf("directory: plaintext client sent non-list, closing fd=%d\n", c->fd);
+							printf("directory: plaintext client sent %s, closing fd=%d\n", readbuf, c->fd);
 							close(c->fd);
 							LIST_REMOVE(c, entries);
 							free(c);
@@ -253,6 +253,7 @@ int main(int argc, char **argv)
 
 					// List active chat servers (plaintext list requests from clients)
 					else if (readbuf[0] == 'l') {
+						printf("directory: sent fd=%d list of servers\n", c->fd);
 						for (other = LIST_FIRST(&clients); other != NULL; other = LIST_NEXT(other, entries)) {
 							// Only list clients with chatnames (registered chat servers)
 							if (other->fd != c->fd && other->chatname[0] != '\0') {

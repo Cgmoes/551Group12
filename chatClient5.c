@@ -116,8 +116,7 @@ int main()
 
 	printf("Please enter the name of the desired chat room:\n");
 	char input[MAX] = {'\0'};
-	snprintf(input, MAX, "l");
-	//write(dirsockfd, input, MAX);
+	snprintf(input, MAX, "     l"); //FIXME fix me (FIXME)
 	 if (write(dirsockfd, input, MAX) != MAX) {
         fprintf(stderr, "client: failed to send list request to directory\n");
         close(dirsockfd);
