@@ -16,10 +16,11 @@ struct client {
 	char username[MAX_NAME];
 	LIST_ENTRY(client) entries;
 	SSL *ssl;
+	int ssl_established;
 };
 
 //Make a socket non blocking
-int setNonblocking(int fd)
+int set_nonblocking(int fd)
 {
 	int flags = fcntl(fd, F_GETFL, 0);
 	if (flags < 0) return -1;
