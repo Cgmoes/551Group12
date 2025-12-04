@@ -13,5 +13,7 @@ GROUP 12
 
 4. These are the possible chatServer commands using the certificates provided:
    ./chatServer5 Sports <port> tls/Sports.crt tls/Sports.key
+   ./chatServer5 Food <port> tls/Food.crt tls/Food.key
+   ./chatServer5 Films <port> tls/Films.crt tls/Films.key
 
 5. To start a chatClient: ./chatClient5
