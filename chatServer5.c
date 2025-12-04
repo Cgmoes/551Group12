@@ -10,8 +10,8 @@
 #include "common.h"
 #include <openssl/ssl.h>
 #include <openssl/err.h>
-#include <fcntl.h>    // added for fcntl
-#include <errno.h>    // added for errno
+#include <fcntl.h>
+#include <errno.h>
 
 struct client {
 	int fd;
@@ -43,7 +43,6 @@ SSL_CTX *createCtx(int is_server, const char *cert_file, const char *key_file) {
     SSL_CTX_set_min_proto_version(ctx, TLS1_3_VERSION);
     SSL_CTX_set_max_proto_version(ctx, TLS1_3_VERSION);
 
-    // For the directory server (client side), you do NOT load cert/key
     if (is_server) {
         if (SSL_CTX_use_certificate_file(ctx, cert_file, SSL_FILETYPE_PEM) <= 0 ||
             SSL_CTX_use_PrivateKey_file(ctx, key_file, SSL_FILETYPE_PEM) <= 0 ||
@@ -61,11 +60,7 @@ SSL_CTX *createCtx(int is_server, const char *cert_file, const char *key_file) {
     return ctx;
 }
 
-// Wrapper for a non-blocking SSL accept step.
-// Returns:
-//   1  = SSL_accept completed successfully
-//   0  = still in progress (WANT_READ/WRITE)
-//  -1  = fatal error (or remote closed during handshake)
+// Wrapper for a non-blocking SSL accept step
 int ssl_do_accept_nonblocking(SSL *ssl) {
     int rc = SSL_accept(ssl);
     if (rc == 1) return 1;
@@ -85,7 +80,6 @@ int ssl_do_accept_nonblocking(SSL *ssl) {
                 return -1;
             }
         } else if (rc == 0) {
-            // syscall EOF (no OpenSSL error queued)
             return -1;
         }
         // otherwise print and treat as fatal
@@ -100,11 +94,7 @@ int ssl_do_accept_nonblocking(SSL *ssl) {
     return -1;
 }
 
-// Non-blocking SSL read. Returns:
-//  >0 bytes read
-//   0 = orderly shutdown / EOF (peer closed; caller should cleanup and broadcast "left")
-//  -2 = want read/write (would block)
-//  -1 = fatal error
+// Non-blocking SSL read
 ssize_t ssl_read_nb(SSL *ssl, void *buf, size_t len) {
     int rc = SSL_read(ssl, buf, (int)len);
     if (rc > 0) return rc;
@@ -116,51 +106,40 @@ ssize_t ssl_read_nb(SSL *ssl, void *buf, size_t len) {
     }
 
     if (err == SSL_ERROR_ZERO_RETURN) {
-        // clean TLS/SSL shutdown by peer
         return 0;
     }
 
-    // Handle syscall-level EOF (no OpenSSL queued error)
+    // Handle EOF erro
     if (err == SSL_ERROR_SYSCALL) {
         unsigned long e_peek = ERR_peek_error();
         if (rc == 0 && e_peek == 0) {
-            // plain TCP EOF / FIN
             return 0;
         }
-        // if there is an OpenSSL error queued, fall through to check reason
     }
 
-    // Some unexpected EOFs are reported as SSL_ERROR_SSL with a specific OpenSSL reason string.
-    // Inspect the queued OpenSSL error (if any) and treat "unexpected eof"/"short read" as EOF.
     unsigned long e = ERR_peek_error();
     if (e) {
         const char *rs = ERR_reason_error_string(e);
         if (rs) {
             if (strstr(rs, "unexpected eof") || strstr(rs, "short read")) {
-                // consume and treat as EOF for application
                 ERR_clear_error();
                 return 0;
             }
         }
     }
 
-    // If we reach here, it's a real fatal SSL error — print diagnostics and return -1.
     if (e) {
         ERR_print_errors_fp(stderr);
     } else if (errno) {
         perror("ssl_read_nb: syscall error");
     } else {
-        // last resort: print something helpful
         fprintf(stderr, "ssl_read_nb: SSL_read rc=%d err=%d\n", rc, err);
     }
     ERR_clear_error();
     return -1;
 }
 
-// Non-blocking SSL write. Returns:
-//  >0 bytes written
-//  -2 = want read/write (would block)
-//  -1 = error
+// Non-blocking SSL write
 ssize_t ssl_write_nb(SSL *ssl, const void *buf, size_t len) {
     int rc = SSL_write(ssl, buf, (int)len);
     if (rc > 0) return rc;
@@ -174,7 +153,6 @@ ssize_t ssl_write_nb(SSL *ssl, const void *buf, size_t len) {
             const char *rs = ERR_reason_error_string(e);
             if (rs && (strstr(rs, "unexpected eof") || strstr(rs, "short read"))) {
                 ERR_clear_error();
-                // treat as peer closed — write failed because peer gone
                 return -1;
             }
             ERR_print_errors_fp(stderr);
@@ -456,7 +434,6 @@ int main(int argc, char **argv)
 					continue;
 				}
 
-				// Only attempt application read if TLS established
 				ssize_t nread = -1;
 				if (c->ssl && c->ssl_established) {
 					nread = ssl_read_nb(c->ssl, readbuf, MAX);
@@ -493,12 +470,10 @@ int main(int argc, char **argv)
 						continue;
 					}
 				} else {
-					// No SSL object? fall back to plain read (shouldn't happen in this TLS-enabled build)
 					nread = read(c->fd, readbuf, MAX);
 				}
 
 				if (nread <= 0) {
-					// handled above for TLS; plain read path would fall here
 					if (nread < 0) {
 						printf("chat server: client \"%s\" (fd=%d) read error or disconnected\n", c->username, c->fd);
 					}
