@@ -30,11 +30,6 @@ int set_nonblocking(int fd)
 	return 0;
 }
 
-void opensslInit() {
-    SSL_load_error_strings();
-    OpenSSL_add_ssl_algorithms();
-}
-
 // Create SSL_CTX for server or client (is_server: 1=server,0=client)
 SSL_CTX *createCtx(int is_server, const char *cert_file, const char *key_file) {
     const SSL_METHOD *method = is_server ? TLS_server_method() : TLS_client_method();
@@ -217,12 +212,13 @@ int main(int argc, char **argv)
 
 	//Set the certifications, keys, ca
 	char cert_file[MAX] = {'\0'};
-	snprintf(cert_file, MAX, "%s", argv[3]);
+	snprintf(cert_file, MAX, "tls/%s", argv[3]);
     char key_file[MAX] = {'\0'};
-	snprintf(key_file, MAX, "%s", argv[4]);
+	snprintf(key_file, MAX, "tls/%s", argv[4]);
 
 	//Initialize SSL
-	opensslInit();
+	SSL_load_error_strings();
+    OpenSSL_add_ssl_algorithms();
 
 	SSL_CTX *ctx = createCtx(1, cert_file, key_file);
     if (!ctx) {
