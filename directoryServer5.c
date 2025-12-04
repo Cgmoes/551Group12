@@ -227,7 +227,7 @@ int main(int argc, char **argv)
 						}
 					}
 
-					// List active chat servers (plaintext list requests from clients)
+					// List active chat servers
 					else if (readbuf[0] == 'l') {
 						printf("directory: sent fd=%d list of servers\n", c->fd);
 						for (other = LIST_FIRST(&clients); other != NULL; other = LIST_NEXT(other, entries)) {
@@ -295,20 +295,23 @@ static void configure_ssl_context(SSL_CTX *ctx)
 }
 
 // Receive from client (TLS or plaintext). Returns bytes read or <=0 on error/close
-static ssize_t client_recv(struct client *c, char *buf, size_t len)
-{
-	if (c->ssl) {
-		int r = SSL_read(c->ssl, buf, (int)len - 1);
-		if (r <= 0) {
-			int err = SSL_get_error(c->ssl, r);
-			(void)err;
-			return -1;
-		}
-		if ((size_t)r < len) buf[r] = '\0';
-		else buf[len - 1] = '\0';
-		return r;
-	}
-	return -1;
+ssize_t client_recv(struct client *c, char *buf, size_t sz) {
+    if (!c->ssl) return read(c->fd, buf, sz);
+		int n = SSL_read(c->ssl, buf, sz);
+		if (n > 0) return n;
+
+		int err = SSL_get_error(c->ssl, n);
+    if (err == SSL_ERROR_ZERO_RETURN) {
+        // clean TLS shutdown
+        return 0;
+    }
+
+    if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+        return -2;
+    }
+
+    // ERROR
+    return -1;
 }
 
 // Send to client (TLS or plaintext). Returns bytes written or -1 on error
