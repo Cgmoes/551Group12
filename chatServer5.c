@@ -66,90 +66,133 @@ SSL_CTX *createCtx(int is_server, const char *cert_file, const char *key_file) {
     return ctx;
 }
 
-// ---- Helpers ------------------------------------------------------------
-
-// Returns 1 if OpenSSL/tcp error queue indicates EOF/short read, 0 otherwise.
-// Consumes the error if matched.
-static int ssl_is_eof_error(int rc) {
-    unsigned long e = ERR_peek_error();
-
-    // Pure syscall EOF (rc==0 and no OpenSSL error)
-    if (rc == 0 && e == 0)
-        return 1;
-
-    if (e) {
-        const char *rs = ERR_reason_error_string(e);
-        if (rs && (strstr(rs, "unexpected eof") || strstr(rs, "short read"))) {
-            ERR_clear_error();
-            return 1;
-        }
-    }
-    return 0;
-}
-
-// Print error diagnostics and return -1.
-static int ssl_fatal(const char *ctx) {
-    if (ERR_peek_error())
-        ERR_print_errors_fp(stderr);
-    if (errno)
-        perror(ctx);
-    ERR_clear_error();
-    return -1;
-}
-
-// SSL_accept nonblocking
+// Wrapper for a non-blocking SSL accept step.
+// Returns:
+//   1  = SSL_accept completed successfully
+//   0  = still in progress (WANT_READ/WRITE)
+//  -1  = fatal error (or remote closed during handshake)
 int ssl_do_accept_nonblocking(SSL *ssl) {
     int rc = SSL_accept(ssl);
     if (rc == 1) return 1;
 
     int err = SSL_get_error(ssl, rc);
-    if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
+    if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
         return 0;
-
-    if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
-        if (ssl_is_eof_error(rc))
-            return -1;
-        return ssl_fatal("ssl_do_accept_nonblocking");
     }
 
-    return ssl_fatal("ssl_do_accept_nonblocking");
+    if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
+        unsigned long e = ERR_peek_error(); // peek so we can inspect without removing yet
+        if (e) {
+            const char *rs = ERR_reason_error_string(e);
+            if (rs && (strstr(rs, "unexpected eof") || strstr(rs, "short read"))) {
+                // EOF during handshake — treat as fatal for handshake (caller will cleanup).
+                ERR_clear_error(); // consume so it doesn't leak into later logs
+                return -1;
+            }
+        } else if (rc == 0) {
+            // syscall EOF (no OpenSSL error queued)
+            return -1;
+        }
+        // otherwise print and treat as fatal
+        ERR_print_errors_fp(stderr);
+        if (errno) perror("ssl_do_accept_nonblocking syscall errno");
+        ERR_clear_error();
+        return -1;
+    }
+
+    ERR_print_errors_fp(stderr);
+    ERR_clear_error();
+    return -1;
 }
 
-// SSL_read nonblocking
+// Non-blocking SSL read. Returns:
+//  >0 bytes read
+//   0 = orderly shutdown / EOF (peer closed; caller should cleanup and broadcast "left")
+//  -2 = want read/write (would block)
+//  -1 = fatal error
 ssize_t ssl_read_nb(SSL *ssl, void *buf, size_t len) {
     int rc = SSL_read(ssl, buf, (int)len);
     if (rc > 0) return rc;
 
     int err = SSL_get_error(ssl, rc);
-    if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
+
+    if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
         return -2;
-    if (err == SSL_ERROR_ZERO_RETURN)
-        return 0;
-    if (err == SSL_ERROR_SYSCALL && ssl_is_eof_error(rc))
-        return 0;
+    }
 
-    if (ssl_is_eof_error(rc))
+    if (err == SSL_ERROR_ZERO_RETURN) {
+        // clean TLS/SSL shutdown by peer
         return 0;
+    }
 
-    ssl_fatal("ssl_read_nb");
+    // Handle syscall-level EOF (no OpenSSL queued error)
+    if (err == SSL_ERROR_SYSCALL) {
+        unsigned long e_peek = ERR_peek_error();
+        if (rc == 0 && e_peek == 0) {
+            // plain TCP EOF / FIN
+            return 0;
+        }
+        // if there is an OpenSSL error queued, fall through to check reason
+    }
+
+    // Some unexpected EOFs are reported as SSL_ERROR_SSL with a specific OpenSSL reason string.
+    // Inspect the queued OpenSSL error (if any) and treat "unexpected eof"/"short read" as EOF.
+    unsigned long e = ERR_peek_error();
+    if (e) {
+        const char *rs = ERR_reason_error_string(e);
+        if (rs) {
+            if (strstr(rs, "unexpected eof") || strstr(rs, "short read")) {
+                // consume and treat as EOF for application
+                ERR_clear_error();
+                return 0;
+            }
+        }
+    }
+
+    // If we reach here, it's a real fatal SSL error — print diagnostics and return -1.
+    if (e) {
+        ERR_print_errors_fp(stderr);
+    } else if (errno) {
+        perror("ssl_read_nb: syscall error");
+    } else {
+        // last resort: print something helpful
+        fprintf(stderr, "ssl_read_nb: SSL_read rc=%d err=%d\n", rc, err);
+    }
+    ERR_clear_error();
     return -1;
 }
 
-// SSL_write nonblocking
+// Non-blocking SSL write. Returns:
+//  >0 bytes written
+//  -2 = want read/write (would block)
+//  -1 = error
 ssize_t ssl_write_nb(SSL *ssl, const void *buf, size_t len) {
     int rc = SSL_write(ssl, buf, (int)len);
     if (rc > 0) return rc;
 
     int err = SSL_get_error(ssl, rc);
-    if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
-        return -2;
+    if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) return -2;
+
     if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
-        if (ssl_is_eof_error(rc))
-            return -1;
-        return ssl_fatal("ssl_write_nb");
+        unsigned long e = ERR_peek_error();
+        if (e) {
+            const char *rs = ERR_reason_error_string(e);
+            if (rs && (strstr(rs, "unexpected eof") || strstr(rs, "short read"))) {
+                ERR_clear_error();
+                // treat as peer closed — write failed because peer gone
+                return -1;
+            }
+            ERR_print_errors_fp(stderr);
+        } else if (errno) {
+            perror("ssl_write_nb: syscall error");
+        }
+        ERR_clear_error();
+        return -1;
     }
 
-    return ssl_fatal("ssl_write_nb");
+    ERR_print_errors_fp(stderr);
+    ERR_clear_error();
+    return -1;
 }
 
 int main(int argc, char **argv)
@@ -403,7 +446,7 @@ int main(int argc, char **argv)
 						printf("chat server: TLS handshake completed for fd=%d\n", c->fd);
 						// send nothing here: client will send username or message next
 					} else if (hs == 0) {
-						// handshake still in progress\
+						// handshake still in progress; nothing else to do this iteration
 					} else {
 						// fatal error during handshake
 						printf("chat server: TLS handshake failed for fd=%d\n", c->fd);
@@ -454,7 +497,7 @@ int main(int argc, char **argv)
 						continue;
 					}
 				} else {
-					// fall back to plain read
+					// No SSL object? fall back to plain read (shouldn't happen in this TLS-enabled build)
 					nread = read(c->fd, readbuf, MAX);
 				}
 
@@ -533,7 +576,7 @@ int main(int argc, char **argv)
 							snprintf(writebuf, MAX, "%s: %s", c->username, readbuf+1);
 						}
 					}
-					// Error checking in case garbage gets sent in front of request
+					// No idea how this would happen, but it's here just in case
 					else {
 						fprintf(stderr,
 							"%s:%d Received an undefined request from %d\n",
