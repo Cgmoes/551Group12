@@ -138,9 +138,12 @@ int main(int argc, char **argv)
 					if (SSL_accept(ssl) > 0) {
 				    newc->ssl = ssl;
 				    newc->tls_handshake_done = 1;
-				    printf("directory: TLS established for fd=%d (chat server)\n", newc->fd);
+				    printf("directory: TLS established for fd=%d\n", newc->fd);
 					} else {
 				    SSL_free(ssl);
+				    close(c->fd);
+				    LIST_REMOVE(c, entries);
+				    free(c);
 					}
 				}
 				// Insert into client list
@@ -176,33 +179,6 @@ int main(int argc, char **argv)
 					c = tmp;
 					continue;
 				} else {
-          /* ---------------- REQUEST TYPE ENFORCEMENT ---------------- */
-					// TLS connections = chat servers = must send only 'r'
-					if (c->ssl) {
-						if (readbuf[0] != 'r') {
-							printf("directory: TLS peer sent non-register, closing fd=%d\n", c->fd);
-							SSL_shutdown(c->ssl);
-							SSL_free(c->ssl);
-							close(c->fd);
-							LIST_REMOVE(c, entries);
-							free(c);
-							c = tmp;
-							continue;
-						}
-					}
-					// Plaintext connections = chat clients = must send only 'l'
-					if (!c->ssl) {
-						if (readbuf[0] != 'l') {
-							printf("directory: plaintext client sent %s, closing fd=%d\n", readbuf, c->fd);
-							close(c->fd);
-							LIST_REMOVE(c, entries);
-							free(c);
-							c = tmp;
-							continue;
-						}
-					}
-
-          /* ---------------- REQUEST HANDLING ---------------- */
 					// Registration: Chat server registers it's name for clients to see
 					if (readbuf[0] == 'r') {
 						char requested[MAX_NAME];
@@ -331,12 +307,8 @@ static ssize_t client_recv(struct client *c, char *buf, size_t len)
 		if ((size_t)r < len) buf[r] = '\0';
 		else buf[len - 1] = '\0';
 		return r;
-	} else {
-		ssize_t r = read(c->fd, buf, len - 1);
-		if (r <= 0) return r;
-		buf[r] = '\0';
-		return r;
 	}
+	return -1;
 }
 
 // Send to client (TLS or plaintext). Returns bytes written or -1 on error
@@ -350,9 +322,7 @@ static ssize_t client_send(struct client *c, const char *buf, size_t len)
 			return -1;
 		}
 		return r;
-	} else {
-		ssize_t r = write(c->fd, buf, len);
-		return r;
 	}
+	return -1;
 }
 
