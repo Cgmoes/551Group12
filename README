@@ -12,8 +12,8 @@ GROUP 12
    "name" must match the prefix of the .crt / .key files for incoming chatClients to verify
 
 4. These are the possible chatServer commands using the certificates provided:
-   ./chatServer5 Sports <port> tls/Sports.crt tls/Sports.key
-   ./chatServer5 Food <port> tls/Food.crt tls/Food.key
-   ./chatServer5 Films <port> tls/Films.crt tls/Films.key
+   ./chatServer5 Sports <port> Sports.crt Sports.key
+   ./chatServer5 Food <port> Food.crt Food.key
+   ./chatServer5 Films <port> Films.crt Films.key
 
 5. To start a chatClient: ./chatClient5
