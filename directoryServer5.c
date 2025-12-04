@@ -170,7 +170,6 @@ int main(int argc, char **argv)
 
 					// Clean up SSL if present
 					if (c->ssl) {
-						SSL_shutdown(c->ssl);
 						SSL_free(c->ssl);
 					}
 					close(c->fd);
@@ -208,7 +207,6 @@ int main(int argc, char **argv)
 								} else {
 									printf("directory: closed fd=%d (too many or dup)\n", c->fd);
 									if (c->ssl) {
-										SSL_shutdown(c->ssl);
 										SSL_free(c->ssl);
 									}
 									close(c->fd);
@@ -219,7 +217,6 @@ int main(int argc, char **argv)
 							} else {
 								fprintf(stderr, "Invalid register request from fd=%d\n", c->fd);
 								if (c->ssl) {
-									SSL_shutdown(c->ssl);
 									SSL_free(c->ssl);
 								}
 								close(c->fd);
@@ -249,7 +246,7 @@ int main(int argc, char **argv)
 								"%s:%d Received an undefined request from %d\n",
 								__FILE__, __LINE__, c->fd
 							);
-							if (c->ssl) { SSL_shutdown(c->ssl); SSL_free(c->ssl); }
+							if (c->ssl) { SSL_free(c->ssl); }
 							close(c->fd);
 							LIST_REMOVE(c, entries);
 							free(c);
