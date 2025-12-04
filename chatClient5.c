@@ -18,31 +18,31 @@ struct server {
 	LIST_ENTRY(server) entries;
 };
 
-// Initialize OpenSSL library
+//openSSL library
 static void openssl_init(void)
 {
-    SSL_library_init();
-    SSL_load_error_strings();
-    OpenSSL_add_ssl_algorithms();
+    SSL_library_init(); // initialize SSL library
+    SSL_load_error_strings();	 // load error strings
+    OpenSSL_add_ssl_algorithms(); // load cryptos
 }
 
-// Create SSL_CTX for client with CA verification
+// create SSL_CTX for client with CA verification
 static SSL_CTX *create_client_ctx(const char *ca_file)
 {
-    const SSL_METHOD *method = TLS_client_method();
-    SSL_CTX *ctx = SSL_CTX_new(method);
-    if (!ctx) {
+    const SSL_METHOD *method = TLS_client_method(); // use TLS_client_method for TLS 
+    SSL_CTX *ctx = SSL_CTX_new(method); // create new context
+    if (!ctx) { // check for errors
         fprintf(stderr, "client: Unable to create SSL context\n");
         ERR_print_errors_fp(stderr);
         return NULL;
     }
-    SSL_CTX_set_min_proto_version(ctx, TLS1_3_VERSION);
-    SSL_CTX_set_max_proto_version(ctx, TLS1_3_VERSION);
+    SSL_CTX_set_min_proto_version(ctx, TLS1_3_VERSION); // enforce min
+    SSL_CTX_set_max_proto_version(ctx, TLS1_3_VERSION); // enforce Tmax
 
-    if (SSL_CTX_load_verify_locations(ctx, ca_file, NULL) != 1) {
-        fprintf(stderr, "client: Failed to load CA file '%s'\n", ca_file);
-        ERR_print_errors_fp(stderr);
-        SSL_CTX_free(ctx);
+    if (SSL_CTX_load_verify_locations(ctx, ca_file, NULL) != 1) { // load CA file
+        fprintf(stderr, "client: Failed to load CA file '%s'\n", ca_file); // error check
+        ERR_print_errors_fp(stderr); // print errors
+        SSL_CTX_free(ctx); // free context
         return NULL;
     }
 
@@ -53,35 +53,35 @@ static SSL_CTX *create_client_ctx(const char *ca_file)
 // Verify server certificate CN
 static int verify_server_name(SSL *ssl, const char *expected_name)
 {
-    X509 *cert = SSL_get_peer_certificate(ssl);
-    if (!cert) {
+    X509 *cert = SSL_get_peer_certificate(ssl); // get server certificate
+    if (!cert) { // check if certificate is present
         fprintf(stderr, "client: no server certificate presented\n");
         return 0;
     }
 
     char cn[256] = {0};
-    X509_NAME *subj = X509_get_subject_name(cert);
+    X509_NAME *subj = X509_get_subject_name(cert); // get subject name
     if (!subj) {
-        fprintf(stderr, "client: Failed to get subject from certificate\n");
-        X509_free(cert);
+        fprintf(stderr, "client: Failed to get subject from certificate\n"); // error check
+        X509_free(cert); // free certificate
         return 0;
     }
 
-    int len = X509_NAME_get_text_by_NID(subj, NID_commonName, cn, sizeof(cn));
+    int len = X509_NAME_get_text_by_NID(subj, NID_commonName, cn, sizeof(cn)); // get CN
     if (len < 0) {
-        fprintf(stderr, "client: Failed to get CN from certificate\n");
-        X509_free(cert);
+        fprintf(stderr, "client: Failed to get CN from certificate\n"); // error check
+        X509_free(cert); // free certificate
         return 0;
     }
 
     cn[sizeof(cn) - 1] = '\0';
     int ok = (strncmp(cn, expected_name, MAX_NAME) == 0);
-    if (!ok) {
-        fprintf(stderr, "client: certificate CN mismatch, Expected \"%s\", got \"%s\"\n",
-                expected_name, cn);
+    if (!ok)  // check CN match
+	{
+		fprintf(stderr, "client: certificate CN mismatch and expected \"%s\" got \"%s\"\n", expected_name, cn);
     }
 
-    X509_free(cert);
+    X509_free(cert); // free certificate
     return ok;
 }
 
@@ -121,28 +121,28 @@ int main()
 		return EXIT_FAILURE;
 	}
 
-	SSL *dir_ssl = SSL_new(dir_ctx);
+	SSL *dir_ssl = SSL_new(dir_ctx); // create new SSL connection state
 	if (!dir_ssl) {
-		fprintf(stderr, "client: SSL_new failed for directory server\n");
+		fprintf(stderr, "client: SSL_new failed for directory server\n"); // error check
 		SSL_CTX_free(dir_ctx);
 		close(dirsockfd);
 		return EXIT_FAILURE;
 	}
 
-	SSL_set_fd(dir_ssl, dirsockfd);
+	SSL_set_fd(dir_ssl, dirsockfd); // attach the socket descriptor
 
-	if (SSL_connect(dir_ssl) <= 0) {
-		fprintf(stderr, "client: TLS handshake with directory server failed\n");
-		ERR_print_errors_fp(stderr);
-		SSL_free(dir_ssl);
-		SSL_CTX_free(dir_ctx);
+	if (SSL_connect(dir_ssl) <= 0) { //	 perform the TLS handshake
+		fprintf(stderr, "client: TLS handshake with directory server failed\n"); // error check
+		ERR_print_errors_fp(stderr); // print errors
+		SSL_free(dir_ssl); //	 free SSL structure
+		SSL_CTX_free(dir_ctx); // free context
 		close(dirsockfd);
 		return EXIT_FAILURE;
 	}
 
-	if (!verify_server_name(dir_ssl, "DirectoryServer")) {
+	if (!verify_server_name(dir_ssl, "DirectoryServer")) { // verify server certificate
 		fprintf(stderr, "client: directory server certificate verification failed\n");
-		SSL_shutdown(dir_ssl);
+		SSL_shutdown(dir_ssl); //	 shutdown TLS connection
 		SSL_free(dir_ssl);
 		SSL_CTX_free(dir_ctx);
 		close(dirsockfd);
@@ -153,10 +153,10 @@ int main()
 
 	printf("Please enter the name of the desired chat room:\n");
 	char input[MAX] = {'\0'};
-	snprintf(input, MAX, "l");
-	if (SSL_write(dir_ssl, input, MAX) <= 0) {
+	snprintf(input, MAX, "l"); // send list request
+	if (SSL_write(dir_ssl, input, MAX) <= 0) { // send list request
 		fprintf(stderr, "client: failed to send list request to directory\n");
-		SSL_shutdown(dir_ssl);
+		SSL_shutdown(dir_ssl); //	 shutdown TLS connection
 		SSL_free(dir_ssl);
 		SSL_CTX_free(dir_ctx);
 		close(dirsockfd);
@@ -255,12 +255,16 @@ int main()
 	SSL_CTX *ctx = create_client_ctx(ca_file);
 	if (!ctx) { close(sockfd); return EXIT_FAILURE; }
 
-	SSL *ssl = SSL_new(ctx);
+	SSL *ssl = SSL_new(ctx); // create new SSL connection state
 	if (!ssl) { fprintf(stderr, "client: SSL_new failed\n"); SSL_CTX_free(ctx); close(sockfd); return EXIT_FAILURE; }
 
-	SSL_set_fd(ssl, sockfd);
-	if (SSL_connect(ssl) <= 0) { fprintf(stderr, "client: TLS handshake failed\n"); ERR_print_errors_fp(stderr); SSL_free(ssl); SSL_CTX_free(ctx); close(sockfd); return EXIT_FAILURE; }
-
+	SSL_set_fd(ssl, sockfd); // attach socket descriptor
+	if (SSL_connect(ssl) <= 0) // TLS handshake
+	{ 
+		fprintf(stderr, "client: TLS handshake failed\n"); ERR_print_errors_fp(stderr); SSL_free(ssl); SSL_CTX_free(ctx); close(sockfd); 
+		return EXIT_FAILURE;
+	}
+	// Verify server certificate
 	if (!verify_server_name(ssl, input)) { fprintf(stderr, "client: server verification failed\n"); SSL_shutdown(ssl); SSL_free(ssl); SSL_CTX_free(ctx); close(sockfd); return EXIT_FAILURE; }
 
 	printf("Secure connection (TLS 1.3) established to chatroom \"%s\".\n", input);
