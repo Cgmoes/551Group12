@@ -74,7 +74,7 @@ int ssl_do_accept_nonblocking(SSL *ssl) {
         unsigned long e = ERR_peek_error(); // peek so we can inspect without removing yet
         if (e) {
             const char *rs = ERR_reason_error_string(e);
-            if (rs && (strstr(rs, "unexpected eof") || strstr(rs, "short read"))) {
+            if (rs) {
                 // EOF during handshake — treat as fatal for handshake (caller will cleanup).
                 ERR_clear_error(); // consume so it doesn't leak into later logs
                 return -1;
@@ -121,10 +121,7 @@ ssize_t ssl_read_nb(SSL *ssl, void *buf, size_t len) {
     if (e) {
         const char *rs = ERR_reason_error_string(e);
         if (rs) {
-            if (strstr(rs, "unexpected eof") || strstr(rs, "short read")) {
-                ERR_clear_error();
-                return 0;
-            }
+            return 0;
         }
     }
 
@@ -151,7 +148,7 @@ ssize_t ssl_write_nb(SSL *ssl, const void *buf, size_t len) {
         unsigned long e = ERR_peek_error();
         if (e) {
             const char *rs = ERR_reason_error_string(e);
-            if (rs && (strstr(rs, "unexpected eof") || strstr(rs, "short read"))) {
+            if (rs) {
                 ERR_clear_error();
                 return -1;
             }
