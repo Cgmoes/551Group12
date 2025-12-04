@@ -131,7 +131,7 @@ int main(int argc, char **argv)
 
 				printf("directory: new connection fd=%d (ip=%s)\n", newc->fd, newc->ip);
 
-				// Try TLS immediately
+				// Require TLS handshake
 				SSL *ssl = SSL_new(ctx);
 				if (ssl) {
 					SSL_set_fd(ssl, newc->fd);
@@ -139,21 +139,21 @@ int main(int argc, char **argv)
 				    newc->ssl = ssl;
 				    newc->tls_handshake_done = 1;
 				    printf("directory: TLS established for fd=%d\n", newc->fd);
+						LIST_INSERT_HEAD(&clients, newc, entries);
 					} else {
+				    printf("directory: TLS error for fd=%d, closing connection\n", newc->fd);
 				    SSL_free(ssl);
-				    close(c->fd);
-				    LIST_REMOVE(c, entries);
-				    free(c);
+				    close(newc->fd);
+				    free(newc);
+				    continue;
 					}
 				}
-				// Insert into client list
-				LIST_INSERT_HEAD(&clients, newc, entries);
 			}
 		}
 
 		// Read the request from the client(s)
 		struct client *tmp, *other;
-		for (c = LIST_FIRST(&clients); c != NULL; ) {
+		for (c = LIST_FIRST(&clients); c != NULL; c = tmp) {
 			tmp = LIST_NEXT(c, entries);
 			if (FD_ISSET(c->fd, &readset)) {
 				char readbuf[MAX] = {'\0'};
@@ -176,37 +176,48 @@ int main(int argc, char **argv)
 					close(c->fd);
 					LIST_REMOVE(c, entries);
 					free(c);
-					c = tmp;
 					continue;
 				} else {
-					// Registration: Chat server registers it's name for clients to see
-					if (readbuf[0] == 'r') {
-						char requested[MAX_NAME];
-						int port;
-						int available = 1;
+					if (c->tls_handshake_done) {
+						// Registration: Chat server registers it's name for clients to see
+						if (readbuf[0] == 'r') {
+							char requested[MAX_NAME];
+							int port;
+							int available = 1;
 
-						int sscanf_res = sscanf(readbuf + 1, "%[^:]::%d", requested, &port);
+							int sscanf_res = sscanf(readbuf + 1, "%[^:]::%d", requested, &port);
 
-						if (sscanf_res == 2) {
-							LIST_FOREACH(other, &clients, entries) {
-								if (other->chatname[0] != '\0' &&
-									strncmp(other->chatname, requested, MAX_NAME) == 0) {
+							if (sscanf_res == 2) {
+								LIST_FOREACH(other, &clients, entries) {
+									if (other->chatname[0] != '\0' &&
+										strncmp(other->chatname, requested, MAX_NAME) == 0) {
 
-									available = 0;
-									printf("directory: fd=%d duplicate name %s\n",
-									c->fd, requested);
-									break;
+										available = 0;
+										printf("directory: fd=%d duplicate name %s\n",
+										c->fd, requested);
+										break;
+									}
 								}
-							}
 
-							if (server_count < MAX_SERVERS && available) {
-								c->port = port;
-								snprintf(c->chatname, MAX_NAME, "%s", requested);
-								printf("directory: fd=%d hosting \"%s\" at %s:%d\n",
-								c->fd, c->chatname, c->ip, c->port);
-								server_count += 1;
+								if (server_count < MAX_SERVERS && available) {
+									c->port = port;
+									snprintf(c->chatname, MAX_NAME, "%s", requested);
+									printf("directory: fd=%d hosting \"%s\" at %s:%d\n",
+									c->fd, c->chatname, c->ip, c->port);
+									server_count += 1;
+								} else {
+									printf("directory: closed fd=%d (too many or dup)\n", c->fd);
+									if (c->ssl) {
+										SSL_shutdown(c->ssl);
+										SSL_free(c->ssl);
+									}
+									close(c->fd);
+									LIST_REMOVE(c, entries);
+									free(c);
+									continue;
+								}
 							} else {
-								printf("directory: closed fd=%d (too many or dup)\n", c->fd);
+								fprintf(stderr, "Invalid register request from fd=%d\n", c->fd);
 								if (c->ssl) {
 									SSL_shutdown(c->ssl);
 									SSL_free(c->ssl);
@@ -214,51 +225,42 @@ int main(int argc, char **argv)
 								close(c->fd);
 								LIST_REMOVE(c, entries);
 								free(c);
+								continue;
 							}
-						} else {
-							fprintf(stderr, "Invalid register request from fd=%d\n", c->fd);
-							if (c->ssl) {
-								SSL_shutdown(c->ssl);
-								SSL_free(c->ssl);
+						}
+
+						// List active chat servers
+						else if (readbuf[0] == 'l') {
+							printf("directory: sent fd=%d list of servers\n", c->fd);
+							for (other = LIST_FIRST(&clients); other != NULL; other = LIST_NEXT(other, entries)) {
+								// Only list clients with chatnames (registered chat servers)
+								if (other->fd != c->fd && other->chatname[0] != '\0') {
+									snprintf(writebuf, sizeof(writebuf), "l%s::%d::%s",
+										other->ip, other->port, other->chatname
+									);
+									client_send(c, writebuf, MAX);
+								}
 							}
+						}
+
+						// Unknown request
+						else {
+							fprintf(stderr,
+								"%s:%d Received an undefined request from %d\n",
+								__FILE__, __LINE__, c->fd
+							);
+							if (c->ssl) { SSL_shutdown(c->ssl); SSL_free(c->ssl); }
 							close(c->fd);
 							LIST_REMOVE(c, entries);
 							free(c);
 						}
 					}
-
-					// List active chat servers
-					else if (readbuf[0] == 'l') {
-						printf("directory: sent fd=%d list of servers\n", c->fd);
-						for (other = LIST_FIRST(&clients); other != NULL; other = LIST_NEXT(other, entries)) {
-							// Only list clients with chatnames (registered chat servers)
-							if (other->fd != c->fd && other->chatname[0] != '\0') {
-								snprintf(writebuf, sizeof(writebuf), "l%s::%d::%s",
-									other->ip, other->port, other->chatname
-								);
-								client_send(c, writebuf, MAX);
-							}
-						}
-					}
-
-					// Unknown request
-					else {
-						fprintf(stderr,
-							"%s:%d Received an undefined request from %d\n",
-							__FILE__, __LINE__, c->fd
-						);
-						if (c->ssl) { SSL_shutdown(c->ssl); SSL_free(c->ssl); }
-						close(c->fd);
-						LIST_REMOVE(c, entries);
-						free(c);
-					}
 				}
 			}
-			c = tmp;
 		}
 	}
 
-	// Should never be reached, but just in case
+	printf("directory: Exiting main loop");
 	SSL_CTX_free(ctx);
 	close(sockfd);
 	return EXIT_SUCCESS;
