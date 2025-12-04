@@ -4,6 +4,14 @@ GROUP 12
 - Noe Rosales
 - Jose Varela
 
+A brief narrative:
+- We created SSL certificates for the directory server and 3 chat server topics
+- We modified the directory server to require a TLS handshake from chat servers / clients at connection time
+- We modified the chat servers to perform a TLS handshake before connecting to the directory server, and to require a TLS handshake from incoming clients
+- We modified the chat client to perform a TLS handshake with both directory and chat server, as well as verifying that the sent cerificates are correct and match the common name
+
+
+HOW TO RUN:
 1. Modify inet.h to use the correct IP / port, then compile with: "make".
 
 2. To start the directory server: ./directoryServer5
@@ -11,7 +19,7 @@ GROUP 12
 3. To add a chat server to the directory: ./chatServer5 <name> <port> <.crt file> <.key file>
    "name" must match the prefix of the .crt / .key files for incoming chatClients to verify
 
-4. These are the possible chatServer commands using the certificates provided:
+   These are the possible chatServer commands using the certificates provided:
    ./chatServer5 Sports <port> Sports.crt Sports.key
    ./chatServer5 Food <port> Food.crt Food.key
    ./chatServer5 Films <port> Films.crt Films.key
