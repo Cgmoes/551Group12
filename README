@@ -4,16 +4,14 @@ GROUP 12
 - Noe Rosales
 - Jose Varela
 
-1. Copy the files to your own directory.
+1. Modify inet.h to use the correct IP / port, then compile with: "make".
 
-2. Modify inet.h to reflect the host you are currently logged into.
-   Also, modify the port numbers to be used to reduce the likelihood
-   of conflicting with another server.
+2. To start the directory server: ./directoryServer5
 
-3. Compile the source code using the command: make
+3. To add a chat server to the directory: ./chatServer5 <name> <port> <.crt file> <.key file>
+   "name" must match the prefix of the .crt / .key files for incoming chatClients to verify
 
-4. Start the chat and directory servers in the background: ./directoryServer3 &; ./chatServer3 &
+4. These are the possible chatServer commands using the certificates provided:
+   ./chatServer5 Sports <port> tls/Sports.crt tls/Sports.key
 
-5. Start the client on the same or another host in the foreground: ./chatClient2
-
-6. Remember to kill the server before logging off.
+5. To start a chatClient: ./chatClient5
