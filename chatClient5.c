@@ -166,7 +166,7 @@ int main()
 	memset(&serv_addr, 0, sizeof(serv_addr));
 
 	for (;;) {
-		char s[MAX] = {'\0'};
+		char buf[MAX] = {'\0'};
 		FD_ZERO(&readset);
 		FD_SET(STDIN_FILENO, &readset);
 		FD_SET(dirsockfd, &readset);
@@ -209,16 +209,16 @@ int main()
 
 			// Directory server response
 			if (FD_ISSET(dirsockfd, &readset)) {
-				ssize_t nread = SSL_read(dir_ssl, s, MAX);
+				ssize_t nread = SSL_read(dir_ssl, buf, MAX);
 				if (nread <= 0) {
 					fprintf(stderr, "%s:%d Error reading from directory server\n",
 					        __FILE__, __LINE__);
 					return EXIT_FAILURE;
-				} else if (s[0] == 'l') {
+				} else if (buf[0] == 'l') {
 					char ip[16];
 					char name[MAX_NAME];
 					uint16_t port;
-					if (sscanf(s + 1, "%[^:]::%hu::%[^:]", ip, &port, name) == 3) {
+					if (sscanf(buf + 1, "%[^:]::%hu::%[^:]", ip, &port, name) == 3) {
 						struct server *s = malloc(sizeof(struct server));
 						snprintf(s->ip, 16, "%s", ip);
 						snprintf(s->name, MAX_NAME, "%s", name);
