@@ -36,13 +36,13 @@ tls:	$(EXECUTABLES)
 
 
 chatClient5: chatClient5.c $(DEPS)
-	$(CC) $(LDFLAGS) $(CFLAGS) $(INCLUDES) $(LDFLAGS) -o $@ $< $(LIBS)
+	$(CC) $(LDFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LIBS)
 
 chatServer5: chatServer5.c $(DEPS)
-	$(CC) $(LDFLAGS) $(CFLAGS) $(INCLUDES) $(LDFLAGS) -o $@ $< $(LIBS)
+	$(CC) $(LDFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LIBS)
 
 directoryServer5: directoryServer5.c $(DEPS)
-	$(CC) $(LDFLAGS) $(CFLAGS) $(INCLUDES) $(LDFLAGS) -o $@ $< $(LIBS)
+	$(CC) $(LDFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LIBS)
 
 
 # Clean up the mess we made
