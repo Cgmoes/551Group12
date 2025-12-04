@@ -189,7 +189,7 @@ int main()
 						}
 					}
 					if (!chosen) {
-						printf("\"%s\" is not an available chat server. Closing connection.\n", input);
+						printf("\"%s\" is not an available chat server.\n", input);
 						snprintf(input, MAX, "l");
 						SSL_write(dir_ssl, input, MAX);
 						continue;
