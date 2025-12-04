@@ -66,44 +66,90 @@ SSL_CTX *createCtx(int is_server, const char *cert_file, const char *key_file) {
     return ctx;
 }
 
+// ---- Helpers ------------------------------------------------------------
 
-// Wrapper for a non-blocking SSL accept step.
-// Returns:
-//   1  = SSL_accept completed successfully
-//   0  = still in progress (WANT_READ/WRITE)
-//  -1  = fatal error
+// Returns 1 if OpenSSL/tcp error queue indicates EOF/short read, 0 otherwise.
+// Consumes the error if matched.
+static int ssl_is_eof_error(int rc) {
+    unsigned long e = ERR_peek_error();
+
+    // Pure syscall EOF (rc==0 and no OpenSSL error)
+    if (rc == 0 && e == 0)
+        return 1;
+
+    if (e) {
+        const char *rs = ERR_reason_error_string(e);
+        if (rs && (strstr(rs, "unexpected eof") || strstr(rs, "short read"))) {
+            ERR_clear_error();
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Print error diagnostics and return -1.
+static int ssl_fatal(const char *ctx) {
+    if (ERR_peek_error())
+        ERR_print_errors_fp(stderr);
+    if (errno)
+        perror(ctx);
+    ERR_clear_error();
+    return -1;
+}
+
+// SSL_accept nonblocking
 int ssl_do_accept_nonblocking(SSL *ssl) {
     int rc = SSL_accept(ssl);
     if (rc == 1) return 1;
+
     int err = SSL_get_error(ssl, rc);
-    if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+    if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
         return 0;
+
+    if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
+        if (ssl_is_eof_error(rc))
+            return -1;
+        return ssl_fatal("ssl_do_accept_nonblocking");
     }
-    ERR_print_errors_fp(stderr);
-    return -1;
+
+    return ssl_fatal("ssl_do_accept_nonblocking");
 }
 
-// Non-blocking SSL read. Returns:
-//  >0 bytes read, 0 = orderly shutdown (peer closed), -2 = want read/write (would block), -1 = error
+// SSL_read nonblocking
 ssize_t ssl_read_nb(SSL *ssl, void *buf, size_t len) {
     int rc = SSL_read(ssl, buf, (int)len);
     if (rc > 0) return rc;
+
     int err = SSL_get_error(ssl, rc);
-    if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) return -2;
-    if (err == SSL_ERROR_ZERO_RETURN) return 0; // clean shutdown
-    ERR_print_errors_fp(stderr);
+    if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
+        return -2;
+    if (err == SSL_ERROR_ZERO_RETURN)
+        return 0;
+    if (err == SSL_ERROR_SYSCALL && ssl_is_eof_error(rc))
+        return 0;
+
+    if (ssl_is_eof_error(rc))
+        return 0;
+
+    ssl_fatal("ssl_read_nb");
     return -1;
 }
 
-// Non-blocking SSL write. Returns:
-//  >0 bytes written, -2 = want read/write (would block), -1 = error
+// SSL_write nonblocking
 ssize_t ssl_write_nb(SSL *ssl, const void *buf, size_t len) {
     int rc = SSL_write(ssl, buf, (int)len);
     if (rc > 0) return rc;
+
     int err = SSL_get_error(ssl, rc);
-    if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) return -2;
-    ERR_print_errors_fp(stderr);
-    return -1;
+    if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
+        return -2;
+    if (err == SSL_ERROR_SYSCALL || err == SSL_ERROR_SSL) {
+        if (ssl_is_eof_error(rc))
+            return -1;
+        return ssl_fatal("ssl_write_nb");
+    }
+
+    return ssl_fatal("ssl_write_nb");
 }
 
 int main(int argc, char **argv)
@@ -357,7 +403,7 @@ int main(int argc, char **argv)
 						printf("chat server: TLS handshake completed for fd=%d\n", c->fd);
 						// send nothing here: client will send username or message next
 					} else if (hs == 0) {
-						// handshake still in progress; nothing else to do this iteration
+						// handshake still in progress\
 					} else {
 						// fatal error during handshake
 						printf("chat server: TLS handshake failed for fd=%d\n", c->fd);
@@ -408,7 +454,7 @@ int main(int argc, char **argv)
 						continue;
 					}
 				} else {
-					// No SSL object? fall back to plain read (shouldn't happen in this TLS-enabled build)
+					// fall back to plain read
 					nread = read(c->fd, readbuf, MAX);
 				}
 
@@ -487,7 +533,7 @@ int main(int argc, char **argv)
 							snprintf(writebuf, MAX, "%s: %s", c->username, readbuf+1);
 						}
 					}
-					// No idea how this would happen, but it's here just in case
+					// Error checking in case garbage gets sent in front of request
 					else {
 						fprintf(stderr,
 							"%s:%d Received an undefined request from %d\n",
