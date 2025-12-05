@@ -20,7 +20,6 @@ struct client {
 	SSL *ssl;
 	int ssl_established;
 };
-int first_to_join = 0;
 //Make a socket non blocking
 int set_nonblocking(int fd)
 {
@@ -517,11 +516,7 @@ int main(int argc, char **argv)
 							char msg[MAX] = {'\0'};
 
 							// Checking whether to send "first user" message
-							if(first_to_join == 0)
-							{
-								snprintf(msg, MAX, "You are the first user to join the chat");
-								first_to_join = 1;
-							}else snprintf(msg, MAX, "You have joined the chat.");
+							snprintf(msg, MAX, "You are the first user to join the chat");
 							LIST_FOREACH(other, &clients, entries) {
 								if (!(other->fd == c->fd) && other->username[0] != '\0') {
 									snprintf(msg, MAX, "You have joined the chat.");
