@@ -521,7 +521,7 @@ int main(int argc, char **argv)
 							{
 								snprintf(msg, MAX, "You are the first user to join the chat");
 								first_to_join = 1;
-							}
+							}else snprintf(msg, MAX, "You have joined the chat.");
 							LIST_FOREACH(other, &clients, entries) {
 								if (!(other->fd == c->fd) && other->username[0] != '\0') {
 									snprintf(msg, MAX, "You have joined the chat.");
